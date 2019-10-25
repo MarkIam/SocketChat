@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -10,15 +11,37 @@ namespace SocketServer
 {
     class Program
     {
+        private static UdpClient Server;
+
+        static int UdpserverPort; // порт для приема широковещательных запросов
+        static int TcpServerPort; // порт для приема входящих TCP-запросов
         static byte[] dataBuffer = new byte[256]; // буфер для получаемых данных
-        static int port = 8006; // порт для приема входящих запросов
         static Dictionary<string, Socket> clients = new Dictionary<string, Socket>();
         static Socket listenSocket;
-
+        
         static void Main(string[] args)
         {
+            UdpserverPort = Convert.ToInt32(ConfigurationManager.AppSettings["UdpServerPort"]);
+            TcpServerPort = Convert.ToInt32(ConfigurationManager.AppSettings["TcpServerPort"]);
+
+            // запускаем сервер для ответа широковещательные запросы
+            #region UDP Server launch
+            Server = new UdpClient(UdpserverPort);
+
+            Console.WriteLine("Server is waiting for broadcast connections...");
+
+            var ClientEp = new IPEndPoint(IPAddress.Any, 0);
+            UdpState udpState = new UdpState
+            {
+                e = ClientEp,
+                u = Server
+            };
+
+            var ClientRequestData = Server.BeginReceive(UdpReceiveCallback, udpState);
+            #endregion
+
             // получаем адреса для запуска сокета
-            IPEndPoint ipPoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), port);
+            var ipPoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), TcpServerPort);
 
             // создаем сокет
             listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -28,37 +51,11 @@ namespace SocketServer
                 listenSocket.Bind(ipPoint);
 
                 // начинаем прослушивание
-                listenSocket.Listen(100);
-                listenSocket.BeginAccept(new AsyncCallback(AcceptCallback), listenSocket);
+                listenSocket.Listen(1);
+                listenSocket.BeginAccept(AcceptCallback, listenSocket);
 
                 Console.WriteLine("Server launched. Waitng for connections...");
 
-                #region synchronous work
-                //while (true)
-                //{
-                //    Socket handler = listenSocket.Accept();
-                //    // получаем сообщение
-                //    StringBuilder builder = new StringBuilder();
-                //    int bytes = 0; // количество полученных байтов
-
-                //    do
-                //    {
-                //        bytes = handler.Receive(data);
-                //        builder.Append(Encoding.Unicode.GetString(data, 0, bytes));
-                //    }
-                //    while (handler.Available > 0);
-
-                //    var messageReceived = builder.ToString();
-
-
-                //  если необходимо, закрываем сокет
-                //  if (needToCloseSocket)
-                //  {
-                //      handler.Shutdown(SocketShutdown.Both);
-                //        handler.Close();
-                //  }
-                //}
-                #endregion
                 Console.ReadLine();
             }
             catch (Exception ex)
@@ -71,19 +68,11 @@ namespace SocketServer
         {
             var srvSocket = (Socket)asyncResult.AsyncState;
             Socket clientSocket = srvSocket.EndAccept(asyncResult);
-            clientSocket.BeginReceive(dataBuffer, 0, dataBuffer.Length, SocketFlags.None, new AsyncCallback(ReceiveCallback), clientSocket);
-            listenSocket.BeginAccept(new AsyncCallback(AcceptCallback), listenSocket);
-
-            //byte[] Buffer;
-            //int bytesTransferred;
-            //var handler = srvSocket.EndAccept(out Buffer, out bytesTransferred, asyncResult);
-
-            //string stringTransferred = Encoding.ASCII.GetString(Buffer, 0, bytesTransferred);
-            //Console.WriteLine(stringTransferred);
-
-            //handler.BeginReceive(dataBuffer, 0, dataBuffer.Length, SocketFlags.None, new AsyncCallback(ReceiveCallback), handler);
+            clientSocket.BeginReceive(dataBuffer, 0, dataBuffer.Length, SocketFlags.None, ReceiveCallback, clientSocket);
+            listenSocket.BeginAccept(AcceptCallback, listenSocket);
         }
 
+        // обработчик запросов по сокету
         private static void ReceiveCallback(IAsyncResult asyncResult)
         {
             var socket = (Socket)asyncResult.AsyncState;
@@ -185,7 +174,36 @@ namespace SocketServer
             }
 
             if (socket.Connected)
-                socket.BeginReceive(dataBuffer, 0, dataBuffer.Length, SocketFlags.None, new AsyncCallback(ReceiveCallback), socket);
+                socket.BeginReceive(dataBuffer, 0, dataBuffer.Length, SocketFlags.None, ReceiveCallback, socket);
+        }
+
+        // получение локального IP-адреса
+        private static string GetLocalIPAddress()
+        {
+            var host = Dns.GetHostEntry(Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                    return ip.ToString();
+
+            throw new Exception("No network adapters with an IPv4 address in the system!");
+        }
+
+        // обработчик широковещательного запроса 
+        private static void UdpReceiveCallback(IAsyncResult asyncResult)
+        {
+            var state = (UdpState)(asyncResult.AsyncState);
+
+            UdpClient u = state.u;
+            IPEndPoint e = state.e;
+
+            byte[] receiveBytes = u.EndReceive(asyncResult, ref e);
+            var ClientRequest = Encoding.ASCII.GetString(receiveBytes);
+
+            var ResponseData = Encoding.ASCII.GetBytes($"{GetLocalIPAddress()}:{TcpServerPort}");
+            Console.WriteLine("Received {0} from {1}, sending response", ClientRequest, e.Address.ToString());
+            Server.Send(ResponseData, ResponseData.Length, e);
+
+            var ClientRequestData = Server.BeginReceive(UdpReceiveCallback, state);
         }
     }
 }
