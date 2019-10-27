@@ -2,90 +2,107 @@
 using System.Configuration;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
+using _utilities = Utilities.Utilities;
+using EventLevel = System.Diagnostics.Tracing.EventLevel;
 
 namespace SocketClient
 {
     class Program
     {
         // адрес и порт сервера, к которому будем подключаться
-        static string serverAddress = "127.0.0.1"; // адрес сервера
-        static int serverPort; // порт сервера
-        static string userName; // имя пользователя
-        static byte[] dataBuffer = new byte[256]; // буфер для получаемых данных
-        static Socket socket;
+        static string _serverAddress; // адрес сервера
+        static int _serverPort; // порт сервера
+        static string _userName; // имя пользователя
+        static readonly byte[] dataBuffer = new byte[256]; // буфер для получаемых данных
+        static Socket _socket;
 
         static void Main(string[] args)
         {
+            Console.Title = "Chat client";
+            _utilities.SetConsoleEncoding();
+
             try
             {
                 var isServerKnown = ConfigurationManager.AppSettings["isServerAddressKnown"] == "1";
 
                 if (!isServerKnown)
                 {
-                    var Client = new UdpClient();
-                    var RequestData = Encoding.ASCII.GetBytes("GetServerChatAddress");
-                    var ServerEp = new IPEndPoint(IPAddress.Any, 0);
+                    var client = new UdpClient();
+                    var requestData = _utilities.GetBytesToSend("GetServerChatAddress");
+                    var serverEp = new IPEndPoint(IPAddress.Any, 0);
 
-                    Client.EnableBroadcast = true;
-                    Client.Send(RequestData, RequestData.Length, new IPEndPoint(IPAddress.Broadcast, 8005));
+                    client.EnableBroadcast = true;
+                    client.Send(requestData, requestData.Length, new IPEndPoint(IPAddress.Broadcast, 8005));
 
-                    var ServerResponseData = Client.Receive(ref ServerEp);
-                    var ServerResponse = Encoding.ASCII.GetString(ServerResponseData);
+                    var serverResponseData = client.Receive(ref serverEp);
+                    var serverResponse = _utilities.GetStringFromBytesReceived(serverResponseData);
 
-                    Console.WriteLine("Received {0} from {1}", ServerResponse, ServerEp.Address.ToString());
-                    var responseParts = ServerResponse.Split(':');
+                    _utilities.WriteMessageToConsole($"От {serverEp.Address} получен ответ '{serverResponse}'");
+                    var responseParts = serverResponse.Split(':');
 
-                    serverAddress = responseParts[0];
-                    serverPort = Convert.ToInt32(responseParts[1]);
+                    _serverAddress = responseParts[0];
+                    _serverPort = Convert.ToInt32(responseParts[1]);
 
-                    Client.Close();
+                    client.Close();
                 }
-                else {
-                    serverAddress = ConfigurationManager.AppSettings["ServerIpAddress"];
-                    serverPort = Convert.ToInt32(ConfigurationManager.AppSettings["ServerPort"]);
+                else
+                {
+                    _serverAddress = ConfigurationManager.AppSettings["ServerIpAddress"];
+                    _serverPort = Convert.ToInt32(ConfigurationManager.AppSettings["ServerPort"]);
                 }
 
-                IPEndPoint ipPoint = new IPEndPoint(IPAddress.Parse(serverAddress), serverPort);
-                socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                // подключаемся к удаленному хосту
-                socket.BeginConnect(ipPoint, ConnectedCallback, null);
+                var ipPoint = new IPEndPoint(IPAddress.Parse(_serverAddress), _serverPort);
+                _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
-                bool exit = false;
+                // подключаемся к серверу
+                try
+                {
+                    _socket.Connect(ipPoint);
+                }
+                catch (Exception e)
+                {
+                    _utilities.WriteMessageToConsole($"При подключении к чат-серверу произошла ошибка: {e.Message}");
+                    Console.Read();
+                }
+
+                if (_socket.Connected)
+                    _utilities.WriteMessageToConsole("Успешное подключение к серверу");
+                else
+                    _utilities.WriteMessageToConsole("Не удалось установить соединение с сервером.", true, EventLevel.Error);
+
+                _socket.BeginReceive(dataBuffer, 0, dataBuffer.Length, SocketFlags.None, ReceiveCallback, _socket);
+
+                var exit = false;
                 while (!exit)
                 {
-                    Console.Write("Type your message:");
-                    string messageToSend = Console.ReadLine();
+                    var needToSend = true;
+                    _utilities.WriteMessageToConsole("Введите команду:");
+                    var messageToSend = Console.ReadLine();
 
-                    bool needToSend = true;
+                    if (!ValidateMessage(messageToSend, out var validationMessage))
+                    {
+                        _utilities.WriteMessageToConsole(validationMessage, false, EventLevel.Error);
+                        WriteHelp();
+                        continue;
+                    }
+
                     var messageParts = messageToSend.Split(' ');
                     var command = messageParts[0].ToLowerInvariant();
+
                     switch (command)
                     {
                         case "listusers":
                         case "message":
                         case "exit":
-                            if (string.IsNullOrEmpty(userName))
-                            {
-                                needToSend = false;
-                                Console.WriteLine("You are not registered by the server.");
-                            }
-                            else
-                            {
-                                messageToSend = $"{messageToSend} {userName}";
-                                exit = command == "exit";
-                            }
+                            messageToSend = $"{messageToSend} {_userName}";
+                            exit = command == "exit";
                             break;
                         case "register":
-                            userName = messageParts[1];
+                            _userName = messageParts[1];
+                            Console.Title = $"Chat client ({_userName})";
                             break;
                         case "help":
                             needToSend = false;
-                            WriteHelp();
-                            break;
-                        default:
-                            needToSend = false;
-                            Console.WriteLine("Bad command");
                             WriteHelp();
                             break;
                     }
@@ -93,41 +110,95 @@ namespace SocketClient
                     if (!needToSend)
                         continue;
 
-                    byte[] data = Encoding.Unicode.GetBytes(messageToSend);
-
-                    socket.Send(data);
+                    var data = _utilities.GetBytesToSend(messageToSend);
+                    _socket.Send(data);
                 }
                 // закрываем сокет
-                socket.Shutdown(SocketShutdown.Both);
-                socket.Close();
-                Console.ReadLine();
+                _socket.Shutdown(SocketShutdown.Both);
+                _socket.Close();
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex.Message);
+                _utilities.WriteMessageToConsole($"Произошла ошибка: {ex.Message}", true, EventLevel.Error);
             }
-            Console.Read();
         }
 
-        private static void WriteHelp() {
-            Console.WriteLine("Possible commands are:");
-            Console.WriteLine("\tlistusers");
-            Console.WriteLine("\tregister <userName>");
-            Console.WriteLine("\tmessage <receiverName> <messageText>");
-            Console.WriteLine("\texit");
-        }
-
-        // асинхронный обработчик подключения
-        private static void ConnectedCallback(IAsyncResult asyncResult)
+        // валидация введенной команды
+        private static bool ValidateMessage(string messageToSend, out string validationMessage)
         {
-            if (socket.Connected)
+            validationMessage = string.Empty;
+            var validationResult = true;
+            var messageParts = messageToSend.Split(' ');
+            var command = messageParts[0].ToLowerInvariant();
+            switch (command)
             {
-                socket.EndConnect(asyncResult);
-                Console.WriteLine("Connected to the server");
-                socket.BeginReceive(dataBuffer, 0, dataBuffer.Length, SocketFlags.None, ReceiveCallback, socket);
+                case "exit":
+                case "help":
+                    if (messageParts.Length != 1)
+                    {
+                        validationMessage = $"Передано ошибочное число параметров для команды {command}";
+                        validationResult = false;
+                    }
+                    break;
+                case "listusers":
+                    if (messageParts.Length != 1)
+                    {
+                        validationMessage = $"Передано ошибочное число параметров для команды {command}";
+                        validationResult = false;
+                    }
+                    else if (string.IsNullOrEmpty(_userName))
+                    {
+                        validationMessage = "Вы не зарегистрированы на сервере.";
+                        validationResult = false;
+                    }
+                    break;
+                case "message":
+                    if (messageParts.Length != 3)
+                    {
+                        validationMessage = $"Передано ошибочное число параметров для команды {command}";
+                        validationResult = false;
+                    }
+                    else if (messageParts[1].ToLowerInvariant() == _userName)
+                    {
+                        validationMessage = $"Сообщение не может быть отправлено самому себе.";
+                        validationResult = false;
+                    }
+                    else if (string.IsNullOrEmpty(_userName))
+                    {
+                        validationMessage = "Вы не зарегистрированы на сервере.";
+                        validationResult = false;
+                    }
+
+                    break;
+                case "register":
+                    if (messageParts.Length != 2)
+                    {
+                        validationMessage = $"Передано ошибочное число параметров для команды {command}";
+                        validationResult = false;
+                    }
+                    else if (!string.IsNullOrEmpty(_userName))
+                    {
+                        validationMessage = $"Вы уже зарегистрированы.";
+                        validationResult = false;
+                    }
+                    break;
+                default:
+                    validationMessage = "Неизвестная команда.";
+                    validationResult = false;
+                    break;
             }
-            else
-                Console.WriteLine("Couldn't connect");
+            return validationResult;
+        }
+
+        // вывод справки
+        private static void WriteHelp()
+        {
+            _utilities.WriteMessageToConsole("Possible commands are:", false);
+            _utilities.WriteMessageToConsole("\tlistusers", false);
+            _utilities.WriteMessageToConsole("\tregister <userName>", false);
+            _utilities.WriteMessageToConsole("\tmessage <receiverName> <messageText>", false);
+            _utilities.WriteMessageToConsole("\texit", false);
+            _utilities.WriteMessageToConsole("\thelp", false);
         }
 
         // асинхронный обработчик приема сообщения
@@ -135,12 +206,19 @@ namespace SocketClient
         {
             var socket = (Socket)asyncResult.AsyncState;
             if (!socket.Connected) return;
-            int received = socket.EndReceive(asyncResult);
-            byte[] tempBuffer = new byte[received];
-            Array.Copy(dataBuffer, tempBuffer, received);
-            string messageReceived = Encoding.Unicode.GetString(tempBuffer);
 
-            Console.WriteLine($"You received message: {messageReceived}");
+            var received = socket.EndReceive(asyncResult, out var se);
+            if (se != SocketError.Success)
+            {
+                _utilities.WriteMessageToConsole($"При получении сообщения от чат-сервера произошла ошибка: {se}.");
+                return;
+            }
+
+            var tempBuffer = new byte[received];
+            Array.Copy(dataBuffer, tempBuffer, received);
+            var messageReceived = _utilities.GetStringFromBytesReceived(tempBuffer);
+
+            _utilities.WriteMessageToConsole($"Получено сообщение: {messageReceived}");
 
             socket.BeginReceive(dataBuffer, 0, dataBuffer.Length, SocketFlags.None, ReceiveCallback, socket);
         }
