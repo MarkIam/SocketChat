@@ -5,6 +5,7 @@ using System.Diagnostics.Tracing;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using Utilities;
 using _utilities = Utilities.Utilities;
 
 namespace SocketServer
@@ -98,11 +99,11 @@ namespace SocketServer
         // обработчик запросов по сокету
         private static void ReceiveCallback(IAsyncResult asyncResult)
         {
-            var socket = (Socket)asyncResult.AsyncState;
+            var socket = (Socket) asyncResult.AsyncState;
             var received = socket.EndReceive(asyncResult, out var se);
             if (se != SocketError.Success)
             {
-                _utilities.WriteMessageToConsole("При получении сообщения от клиентов произошла ошибка.");
+                _utilities.WriteMessageToConsole("При получении сообщения от одного из клиентов произошла ошибка.", true, EventLevel.Error);
                 return;
             }
 
@@ -112,62 +113,62 @@ namespace SocketServer
 
             _utilities.WriteMessageToConsole($"Получено сообщение: {messageReceived}");
 
-            var messageParts = messageReceived.Split(' ');
-            string responseMessage, userFrom;
-            var needToCloseSocket = false;
-
-            switch (messageParts[0])
+            var command = new ChatCommand();
+            command.Parse(messageReceived, out var validationMessage);
+            if (!string.IsNullOrEmpty(validationMessage))
             {
-                // получить список пользователей
-                case "listusers":
-                    userFrom = messageParts[1];
-                    responseMessage = !IsUserRegistered(userFrom) ? MsgNotRegistered : $"Подключенные пользователи: {GetRegisteredUsers()}";
+                _utilities.WriteMessageToConsole(validationMessage, false, EventLevel.Error);
+                return;
+            }
+
+            var responseMessage = string.Empty;
+            var needToCloseSocket = false;
+            var senderName = command.Arguments["SenderName"];
+
+            switch (command.Type)
+            {
+                case CommandType.listusers:
+                    responseMessage = !IsUserRegistered(command.Arguments["SenderName"]) ? MsgNotRegistered : $"Подключенные пользователи: {GetRegisteredUsers()}";
 
                     socket.Send(_utilities.GetBytesToSend(responseMessage));
                     break;
-                // выйти
-                case "exit":
-                    userFrom = messageParts[1];
-                    if (!IsUserRegistered(userFrom))
+                case CommandType.exit:
+                    if (!IsUserRegistered(senderName))
                         responseMessage = MsgNotRegistered;
                     else
                     {
                         needToCloseSocket = true;
-                        _dictSocketsByUserName.Remove(userFrom);
+                        _dictSocketsByUserName.Remove(senderName);
                         responseMessage = "До свидания!";
                     }
                     socket.Send(_utilities.GetBytesToSend(responseMessage));
                     break;
-                // зарегистрироваться
-                case "register":
-                    userFrom = messageParts[1];
-                    if (IsUserRegistered(userFrom))
-                        responseMessage = $"Пользователь '{userFrom}' уже зарегистрирован. Пожалуйста выберите другое имя.";
+                case CommandType.register:
+                    if (IsUserRegistered(senderName))
+                        responseMessage = $"Пользователь '{senderName}' уже зарегистрирован. Пожалуйста выберите другое имя.";
                     else
                     {
-                        responseMessage = "Вы успешно зарегистрированы.";
-                        _dictSocketsByUserName.Add(userFrom, socket);
+                        responseMessage = ChatCommand.msgYouAreSuccessfullyRegistered;
+                        _dictSocketsByUserName.Add(senderName, socket);
                     }
 
                     socket.Send(_utilities.GetBytesToSend(responseMessage));
 
                     break;
-                // отправить сообщение
-                case "message":
-                    userFrom = messageParts[3];
-                    var userTo = messageParts[1];
-                    if (!IsUserRegistered(userFrom))
+                case CommandType.message:
+                    var userTo = command.Arguments["RecipientName"];
+                    if (!IsUserRegistered(senderName))
                     {
                         responseMessage = MsgNotRegistered;
                     }
                     else if (!IsUserRegistered(userTo))
                     {
-                        responseMessage = $"Получатель '{userTo}' не зарегистрирован на сервер.";
+                        responseMessage = $"Получатель '{userTo}' не зарегистрирован на сервере.";
                     }
                     else
                     {
                         var receiverSocket = _dictSocketsByUserName[userTo];
-                        receiverSocket.Send(_utilities.GetBytesToSend($"Пользователь '{userFrom}' прислал вам сообщение: '{messageParts[2]}'"));
+                        receiverSocket.Send(_utilities.GetBytesToSend($"Пользователь '{senderName}' прислал вам сообщение: '{command.Arguments["Message"]}'"));
 
                         responseMessage = "Ваше сообщение успешно отправлено.";
                     }

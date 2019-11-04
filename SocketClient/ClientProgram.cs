@@ -2,6 +2,7 @@
 using System.Configuration;
 using System.Net;
 using System.Net.Sockets;
+using Utilities;
 using _utilities = Utilities.Utilities;
 using EventLevel = System.Diagnostics.Tracing.EventLevel;
 
@@ -15,6 +16,7 @@ namespace SocketClient
         static string _userName; // имя пользователя
         static readonly byte[] dataBuffer = new byte[256]; // буфер для получаемых данных
         static Socket _socket;
+        static ChatCommand command;
 
         static void Main(string[] args)
         {
@@ -23,85 +25,53 @@ namespace SocketClient
 
             try
             {
-                var isServerKnown = ConfigurationManager.AppSettings["isServerAddressKnown"] == "1";
+                var connected = ConnectToServer();
 
-                if (!isServerKnown)
-                {
-                    var client = new UdpClient();
-                    var requestData = _utilities.GetBytesToSend("GetServerChatAddress");
-                    var serverEp = new IPEndPoint(IPAddress.Any, 0);
-
-                    client.EnableBroadcast = true;
-                    client.Send(requestData, requestData.Length, new IPEndPoint(IPAddress.Broadcast, 8005));
-
-                    var serverResponseData = client.Receive(ref serverEp);
-                    var serverResponse = _utilities.GetStringFromBytesReceived(serverResponseData);
-
-                    _utilities.WriteMessageToConsole($"От {serverEp.Address} получен ответ '{serverResponse}'");
-                    var responseParts = serverResponse.Split(':');
-
-                    _serverAddress = responseParts[0];
-                    _serverPort = Convert.ToInt32(responseParts[1]);
-
-                    client.Close();
-                }
-                else
-                {
-                    _serverAddress = ConfigurationManager.AppSettings["ServerIpAddress"];
-                    _serverPort = Convert.ToInt32(ConfigurationManager.AppSettings["ServerPort"]);
-                }
-
-                var ipPoint = new IPEndPoint(IPAddress.Parse(_serverAddress), _serverPort);
-                _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-
-                // подключаемся к серверу
-                try
-                {
-                    _socket.Connect(ipPoint);
-                }
-                catch (Exception e)
-                {
-                    _utilities.WriteMessageToConsole($"При подключении к чат-серверу произошла ошибка: {e.Message}");
-                    Console.Read();
-                }
-
-                if (_socket.Connected)
+                if (connected)
                     _utilities.WriteMessageToConsole("Успешное подключение к серверу");
                 else
+                {
                     _utilities.WriteMessageToConsole("Не удалось установить соединение с сервером.", true, EventLevel.Error);
+                    return;
+                }
 
                 _socket.BeginReceive(dataBuffer, 0, dataBuffer.Length, SocketFlags.None, ReceiveCallback, _socket);
 
+                command = new ChatCommand();
                 var exit = false;
                 while (!exit)
                 {
                     var needToSend = true;
                     _utilities.WriteMessageToConsole("Введите команду:");
-                    var messageToSend = Console.ReadLine();
+                    var inputString = Console.ReadLine();
 
-                    if (!ValidateMessage(messageToSend, out var validationMessage))
+                    // дописываем имя пользователя к команде
+                    inputString += _userName;
+
+                    command.Parse(inputString, out var validationMessage);
+
+                    if (!string.IsNullOrEmpty(validationMessage))
                     {
                         _utilities.WriteMessageToConsole(validationMessage, false, EventLevel.Error);
                         WriteHelp();
                         continue;
                     }
 
-                    var messageParts = messageToSend.Split(' ');
-                    var command = messageParts[0].ToLowerInvariant();
+                    needToSend = command.Type == CommandType.help;
 
-                    switch (command)
+                    switch (command.Type)
                     {
-                        case "listusers":
-                        case "message":
-                        case "exit":
-                            messageToSend = $"{messageToSend} {_userName}";
-                            exit = command == "exit";
+                        case CommandType.listusers:
+                        case CommandType.message:
+                        case CommandType.exit:
+                            command.AddArguments("SenderName", _userName);
+                            exit = command.Type == CommandType.exit;
                             break;
-                        case "register":
-                            _userName = messageParts[1];
+                        case CommandType.register:
+                            _userName = command.Arguments["UserName"];
                             Console.Title = $"Chat client ({_userName})";
                             break;
-                        case "help":
+                        case CommandType.help:
                             needToSend = false;
                             WriteHelp();
                             break;
@@ -110,7 +80,7 @@ namespace SocketClient
                     if (!needToSend)
                         continue;
 
-                    var data = _utilities.GetBytesToSend(messageToSend);
+                    var data = _utilities.GetBytesToSend(command.ToString());
                     _socket.Send(data);
                 }
                 // закрываем сокет
@@ -123,70 +93,59 @@ namespace SocketClient
             }
         }
 
+        // соединение с сервером
+        static bool ConnectToServer()
+        {
+            var isServerKnown = ConfigurationManager.AppSettings["isServerAddressKnown"] == "1";
+
+            if (!isServerKnown)
+            {
+                var client = new UdpClient();
+                var requestData = _utilities.GetBytesToSend("GetServerChatAddress");
+                var serverEp = new IPEndPoint(IPAddress.Any, 0);
+
+                client.EnableBroadcast = true;
+                client.Send(requestData, requestData.Length, new IPEndPoint(IPAddress.Broadcast, 8005));
+
+                var serverResponseData = client.Receive(ref serverEp);
+                var serverResponse = _utilities.GetStringFromBytesReceived(serverResponseData);
+
+                _utilities.WriteMessageToConsole($"От {serverEp.Address} получен ответ '{serverResponse}'");
+                var responseParts = serverResponse.Split(':');
+
+                _serverAddress = responseParts[0];
+                _serverPort = Convert.ToInt32(responseParts[1]);
+
+                client.Close();
+            }
+            else
+            {
+                _serverAddress = ConfigurationManager.AppSettings["ServerIpAddress"];
+                _serverPort = Convert.ToInt32(ConfigurationManager.AppSettings["ServerPort"]);
+            }
+
+            var ipPoint = new IPEndPoint(IPAddress.Parse(_serverAddress), _serverPort);
+            _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+            // подключаемся к серверу
+            try
+            {
+                _socket.Connect(ipPoint);
+            }
+            catch (Exception e)
+            {
+                _utilities.WriteMessageToConsole($"При подключении к чат-серверу произошла ошибка: {e.Message}");
+                return false;
+            }
+
+            return _socket.Connected;
+        }
+
         // валидация введенной команды
-        private static bool ValidateMessage(string messageToSend, out string validationMessage)
+        private static bool ValidateCommand(ChatCommand command, out string validationMessage)
         {
             validationMessage = string.Empty;
             var validationResult = true;
-            var messageParts = messageToSend.Split(' ');
-            var command = messageParts[0].ToLowerInvariant();
-            switch (command)
-            {
-                case "exit":
-                case "help":
-                    if (messageParts.Length != 1)
-                    {
-                        validationMessage = $"Передано ошибочное число параметров для команды {command}";
-                        validationResult = false;
-                    }
-                    break;
-                case "listusers":
-                    if (messageParts.Length != 1)
-                    {
-                        validationMessage = $"Передано ошибочное число параметров для команды {command}";
-                        validationResult = false;
-                    }
-                    else if (string.IsNullOrEmpty(_userName))
-                    {
-                        validationMessage = "Вы не зарегистрированы на сервере.";
-                        validationResult = false;
-                    }
-                    break;
-                case "message":
-                    if (messageParts.Length != 3)
-                    {
-                        validationMessage = $"Передано ошибочное число параметров для команды {command}";
-                        validationResult = false;
-                    }
-                    else if (messageParts[1].ToLowerInvariant() == _userName)
-                    {
-                        validationMessage = $"Сообщение не может быть отправлено самому себе.";
-                        validationResult = false;
-                    }
-                    else if (string.IsNullOrEmpty(_userName))
-                    {
-                        validationMessage = "Вы не зарегистрированы на сервере.";
-                        validationResult = false;
-                    }
-
-                    break;
-                case "register":
-                    if (messageParts.Length != 2)
-                    {
-                        validationMessage = $"Передано ошибочное число параметров для команды {command}";
-                        validationResult = false;
-                    }
-                    else if (!string.IsNullOrEmpty(_userName))
-                    {
-                        validationMessage = $"Вы уже зарегистрированы.";
-                        validationResult = false;
-                    }
-                    break;
-                default:
-                    validationMessage = "Неизвестная команда.";
-                    validationResult = false;
-                    break;
-            }
             return validationResult;
         }
 
