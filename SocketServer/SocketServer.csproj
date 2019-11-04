@@ -60,9 +60,11 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Classes\ChatServer.cs" />
+    <Compile Include="Classes\RegisteredUsers.cs" />
     <Compile Include="ServerProgram.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="UdpState.cs" />
+    <Compile Include="Classes\UdpState.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />

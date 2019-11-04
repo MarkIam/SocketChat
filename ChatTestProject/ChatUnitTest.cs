@@ -13,29 +13,29 @@ namespace ChatTestProject
             string validationMessage;
             var cmd = new ChatCommand();
 
-            cmd.Parse("somecommand", out validationMessage);
+            cmd.TryParse("somecommand", out validationMessage);
             Assert.AreEqual(validationMessage, ChatCommand.msgUnknownCommand);
 
-            cmd.Parse("register", out validationMessage);
+            cmd.TryParse("register", out validationMessage);
             Assert.AreEqual(validationMessage, ChatCommand.msgWrongParametersNumber);
 
-            cmd.Parse("register Mark", out validationMessage);
+            cmd.TryParse("register Mark", out validationMessage);
             Assert.AreEqual(cmd.Type, CommandType.register);
 
-            cmd.Parse("listusers", out validationMessage);
+            cmd.TryParse("listusers", out validationMessage);
             Assert.AreEqual(cmd.Type, CommandType.listusers);
 
-            cmd.Parse("message Hello", out validationMessage);
+            cmd.TryParse("message Hello", out validationMessage);
             Assert.AreEqual(validationMessage, ChatCommand.msgWrongParametersNumber);
 
-            cmd.Parse("message Hello Olya", out validationMessage);
+            cmd.TryParse("message Hello Olya", out validationMessage);
             Assert.AreEqual(cmd.Type, CommandType.message);
             Assert.IsTrue(cmd.Arguments["Message"] == "Hello" && cmd.Arguments["RecipientName"] == "Olya");
 
-            cmd.Parse("help someparameter", out validationMessage);
+            cmd.TryParse("help someparameter", out validationMessage);
             Assert.AreEqual(validationMessage, ChatCommand.msgUnknownCommand);
 
-            cmd.Parse("exit", out validationMessage);
+            cmd.TryParse("exit", out validationMessage);
             Assert.AreEqual(cmd.Type, CommandType.exit);
         }
     }

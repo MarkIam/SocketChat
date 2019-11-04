@@ -4,6 +4,7 @@ using System.Text;
 
 namespace Utilities
 {
+    // класс со вспомогательными методами
     public class Utilities
     {
         // кодировка, используемая для обмена

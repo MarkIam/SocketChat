@@ -4,6 +4,7 @@ using System.Linq;
 
 namespace Utilities
 {
+    // перечисление типов команд
     public enum CommandType
     {
         exit,
@@ -14,6 +15,7 @@ namespace Utilities
         unknown
     }
 
+    // класс для работы с командой
     public class ChatCommand
     {
         public const string msgUserNotRegistered = "Вы не зарегистрированы на сервере.";
@@ -37,7 +39,7 @@ namespace Utilities
         public Dictionary<string, string> Arguments { get; private set; }
         public string UserName { get; private set; }
 
-        public void Parse(string inputString, out string validationMessage)
+        public bool TryParse(string inputString, out string validationMessage)
         {
             var messageParts = inputString.Split(new char[] {' '} , StringSplitOptions.RemoveEmptyEntries);
             var commandString = messageParts[0].ToLowerInvariant();
@@ -46,7 +48,7 @@ namespace Utilities
             if (!Enum.TryParse(commandString, out CommandType commandType) || commandType == CommandType.unknown)
             {
                 validationMessage = msgUnknownCommand;
-                return;
+                return false;
             }
 
             var arguments = messageParts.Skip(1);
@@ -55,7 +57,7 @@ namespace Utilities
             if (numberOfArguments != arguments.Count())
             {
                 validationMessage = $"{msgWrongParametersNumber} {commandString}";
-                return;
+                return false;
             }
 
             var commandArguments = new Dictionary<string, string>();
@@ -68,19 +70,19 @@ namespace Utilities
                     if (string.IsNullOrEmpty(UserName))
                     {
                         validationMessage = ChatCommand.msgUserNotRegistered;
-                        return;
+                        return false;
                     }
                     else if (commandArguments["RecipientName"] == UserName)
                     {
                         validationMessage = ChatCommand.msgCantBeSentToYourself;
-                        return;
+                        return false;
                     }
                     break;
                 case CommandType.register:
                     if (!string.IsNullOrEmpty(UserName))
                     {
                         validationMessage = msgUserIsAlreadyRegistered;
-                        return;
+                        return false;
                     }
 
                     commandArguments.Add("UserName", arguments.ElementAt(0));
@@ -91,7 +93,7 @@ namespace Utilities
                     if (string.IsNullOrEmpty(UserName))
                     {
                         validationMessage = msgUserNotRegistered;
-                        return;
+                        return false;
                     }
                     commandArguments.Add("UserName", arguments.ElementAt(0));
                     break;
@@ -100,6 +102,8 @@ namespace Utilities
             Type = commandType;
             Arguments = commandArguments;
             UserName = commandArguments["UserName"];
+
+            return true;
         }
 
         public void AddArguments(string argumentName, string argumentValue)
