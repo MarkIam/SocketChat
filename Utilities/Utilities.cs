@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Diagnostics.Tracing;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 
 namespace Utilities
@@ -7,6 +9,8 @@ namespace Utilities
     // класс со вспомогательными методами
     public class Utilities
     {
+        public const string localIpAddress = "127.0.0.1";
+
         // кодировка, используемая для обмена
         private static readonly Encoding _exchangeEncoding = Encoding.UTF8;
 
@@ -49,6 +53,16 @@ namespace Utilities
         public static string GetStringFromBytesReceived(byte[] messageReceivedBytes)
         {
             return _exchangeEncoding.GetString(messageReceivedBytes);
+        }
+
+        // получение локального IP-адреса
+        public static string GetLocalIpAddress()
+        {
+            var host = Dns.GetHostEntry(Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                    return ip.ToString();
+            throw new Exception("Сетевые адаптеры не обнаружены.");
         }
     }
 }

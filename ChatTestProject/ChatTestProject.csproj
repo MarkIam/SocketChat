@@ -46,6 +46,7 @@
       <HintPath>..\packages\MSTest.TestFramework.1.3.2\lib\net45\Microsoft.VisualStudio.TestPlatform.TestFramework.Extensions.dll</HintPath>
     </Reference>
     <Reference Include="System" />
+    <Reference Include="System.Configuration" />
     <Reference Include="System.Core" />
   </ItemGroup>
   <ItemGroup>
@@ -53,9 +54,18 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="App.config" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\SocketClient\SocketClient.csproj">
+      <Project>{25a6398f-9d2b-44d0-aca9-6cc95be88bb2}</Project>
+      <Name>SocketClient</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\SocketServer\SocketServer.csproj">
+      <Project>{0188adfc-20ee-4990-86eb-08eff95a46a7}</Project>
+      <Name>SocketServer</Name>
+    </ProjectReference>
     <ProjectReference Include="..\Utilities\Utilities.csproj">
       <Project>{1E0D29E2-5EC6-4F8A-96CB-220B500A8829}</Project>
       <Name>Utilities</Name>

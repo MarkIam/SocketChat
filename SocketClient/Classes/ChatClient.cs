@@ -1,4 +1,5 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Net;
 using System.Net.Sockets;
 using Utilities;
@@ -14,6 +15,7 @@ namespace SocketClient.Classes
         readonly byte[] dataBuffer = new byte[256]; // буфер для получаемых данных
         Socket _socket;
         public Exception lastError { get; private set; } // последнее возникшее исключение
+        public string LastMessageReceivedFromServer { get; private set; }
 
         public ChatClient(bool _isServerKnown, string _serverAddress, int _serverPort) {
             isServerKnown = _isServerKnown;
@@ -87,6 +89,9 @@ namespace SocketClient.Classes
             }
         }
 
+        //public delegate void MessageReceivedHandler(string message);
+        //public event MessageReceivedHandler OnMessage;
+
         // асинхронный обработчик приема сообщения
         private void ReceiveCallback(IAsyncResult asyncResult)
         {
@@ -102,11 +107,16 @@ namespace SocketClient.Classes
 
             var tempBuffer = new byte[received];
             Array.Copy(dataBuffer, tempBuffer, received);
-            var messageReceived = _utilities.GetStringFromBytesReceived(tempBuffer);
+            LastMessageReceivedFromServer = _utilities.GetStringFromBytesReceived(tempBuffer);
 
-            _utilities.WriteMessageToConsole($"Получено сообщение: {messageReceived}");
+            //OnMessage?.Invoke(LastMessageReceivedFromServer); 
 
-            socket.BeginReceive(dataBuffer, 0, dataBuffer.Length, SocketFlags.None, ReceiveCallback, socket);
+            _utilities.WriteMessageToConsole($"Получено сообщение: {LastMessageReceivedFromServer}");
+
+            // пустое сообщение означает закрытие серверного сокета
+            if (!string.IsNullOrEmpty(LastMessageReceivedFromServer))
+                socket.BeginReceive(dataBuffer, 0, dataBuffer.Length, SocketFlags.None, ReceiveCallback, socket);
         }
     }
+
 }

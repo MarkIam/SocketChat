@@ -8,23 +8,23 @@ namespace SocketServer.Classes
     internal class RegisteredUsers
     {
         // справочник клиентских сокетов по именам пользователей
-        private Dictionary<string, Socket> _dictSocketsByUserName;
+        private Dictionary<string, Socket> dictSocketsByUserName;
 
         public RegisteredUsers()
         {
-            _dictSocketsByUserName = new Dictionary<string, Socket>();
+            dictSocketsByUserName = new Dictionary<string, Socket>();
         }
 
         // проверка наличия пользователя в списке зарегистрированных
         public bool IsUserRegistered(string userName)
         {
-            return _dictSocketsByUserName.ContainsKey(userName);
+            return dictSocketsByUserName.ContainsKey(userName);
         }
 
         // Получение списка зарегистрированных пользователей
         public override string ToString()
         {
-            return _dictSocketsByUserName.Keys.ToList().Aggregate((a, b) => $"{a}, {b}");
+            return dictSocketsByUserName.Keys.ToList().Aggregate((a, b) => $"{a}, {b}");
         }
 
         // удаление пользователя
@@ -33,7 +33,7 @@ namespace SocketServer.Classes
             if (!IsUserRegistered(userName))
                 throw new Exception($"Пользователь {userName} не найден в списке.");
 
-            _dictSocketsByUserName.Remove(userName);
+            dictSocketsByUserName.Remove(userName);
         }
 
         // добавление пользователя
@@ -42,13 +42,25 @@ namespace SocketServer.Classes
             if (IsUserRegistered(userName))
                 throw new Exception($"Пользователь {userName} уже присутствует в списке.");
 
-            _dictSocketsByUserName.Add(userName, socket);
+            dictSocketsByUserName.Add(userName, socket);
         }
 
         // получение соединения пользователя
         public Socket GetUserSocket(string userName)
         {
-            return _dictSocketsByUserName[userName];
+            return dictSocketsByUserName[userName];
+        }
+
+        // закрытие всех соединений при  выходе
+        public void CloseConnections()
+        {
+            foreach (var client in dictSocketsByUserName)
+            {
+                var socket = client.Value;
+                // TODO: можно не рвать соединения, а отправлять сообщение о остановке сервера
+                socket.Shutdown(SocketShutdown.Both);
+                socket.Close();
+            }
         }
     }
 }

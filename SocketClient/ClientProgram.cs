@@ -20,9 +20,11 @@ namespace SocketClient
         // считывание настроек
         static void ReadSettings()
         {
-            _isServerKnown = ConfigurationManager.AppSettings["isServerAddressKnown"] == "1";
-            _serverAddress = ConfigurationManager.AppSettings["ServerIpAddress"];
-            _serverPort = Convert.ToInt32(ConfigurationManager.AppSettings["ServerPort"]);
+            var settings = ConfigurationManager.AppSettings;
+
+            _isServerKnown = settings["isServerAddressKnown"] == "1";
+            _serverAddress = settings["ServerIpAddress"];
+            _serverPort = Convert.ToInt32(settings["ServerPort"]);
         }
 
         static void Main(string[] args)
@@ -54,29 +56,30 @@ namespace SocketClient
                     _utilities.WriteMessageToConsole("Введите команду:");
                     var inputString = Console.ReadLine();
 
-                    // дописываем имя пользователя к команде
-                    inputString += _userName;
-
-                    if (!command.TryParse(inputString, out var validationMessage))
+                    if (!command.TryParse(inputString, false, out var validationMessage))
                     {
                         _utilities.WriteMessageToConsole(validationMessage, false, EventLevel.Error);
-                        WriteHelp();
+                        if (command.Type == CommandType.unknown)
+                            WriteHelp();
                         continue;
                     }
 
                     if (command.Type == CommandType.register)
-                        Console.Title = $"Chat client ({command.Arguments["UserName"]})";
+                    {
+                        _userName = command.Arguments["SenderName"];
+                        Console.Title = $"Chat client ({_userName})";
+                    }
 
                     if (command.Type == CommandType.exit)
+                    {
+                        chatClient.SendCommand(command);
                         break;
-
+                    }
                     if (command.Type != CommandType.help)
                         chatClient.SendCommand(command);
                     else
                         WriteHelp();
                 }
-                // закрываем соединение
-                chatClient.CloseConnection();
             }
             catch (Exception ex)
             {

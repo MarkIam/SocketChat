@@ -35,44 +35,51 @@ namespace Utilities
                 [CommandType.register] = 1, // имя пользователя
             };
 
+        public string UserName { get; private set; }
         public CommandType Type { get; private set; }
         public Dictionary<string, string> Arguments { get; private set; }
-        public string UserName { get; private set; }
 
-        public bool TryParse(string inputString, out string validationMessage)
+        public bool TryParse(string inputString, bool isFromServer, out string validationMessage)
         {
-            var messageParts = inputString.Split(new char[] {' '} , StringSplitOptions.RemoveEmptyEntries);
+            var messageParts = inputString.Split(new char[] {' '} , StringSplitOptions.RemoveEmptyEntries).ToList();
             var commandString = messageParts[0].ToLowerInvariant();
-
             validationMessage = string.Empty;
+            // проверяем на допустимый тип команды
             if (!Enum.TryParse(commandString, out CommandType commandType) || commandType == CommandType.unknown)
             {
+                Type = CommandType.unknown;
                 validationMessage = msgUnknownCommand;
                 return false;
             }
 
-            var arguments = messageParts.Skip(1);
-            var numberOfArguments = numberOfArgumentsByCommandType[commandType];
+            // при необходимости добавляем параметр имя пользователя
+            if (!isFromServer && commandType != CommandType.register && commandType != CommandType.help)
+                messageParts.Add(UserName);
 
-            if (numberOfArguments != arguments.Count())
+            Type = commandType;
+            // проверяем на вызов команд до регистрации
+            if (!isFromServer && commandType != CommandType.help && commandType != CommandType.register && string.IsNullOrEmpty(UserName))
             {
-                validationMessage = $"{msgWrongParametersNumber} {commandString}";
+                validationMessage = msgUserNotRegistered;
                 return false;
             }
-
+            // проверяем на количество переданных параметров команды
+            var arguments = messageParts.Skip(1);
+            var numberOfArguments = numberOfArgumentsByCommandType[commandType];
+            if (numberOfArguments != arguments.Count())
+            {
+                validationMessage = $"{msgWrongParametersNumber}";
+                return false;
+            }
+            // дополнительные проверки
             var commandArguments = new Dictionary<string, string>();
             switch (commandType)
             {
                 case CommandType.message:
                     commandArguments.Add("RecipientName", arguments.ElementAt(0));
                     commandArguments.Add("Message", arguments.ElementAt(1));
-                    commandArguments.Add("UserName", arguments.ElementAt(2));
-                    if (string.IsNullOrEmpty(UserName))
-                    {
-                        validationMessage = ChatCommand.msgUserNotRegistered;
-                        return false;
-                    }
-                    else if (commandArguments["RecipientName"] == UserName)
+                    commandArguments.Add("SenderName", arguments.ElementAt(2));
+                    if (commandArguments["RecipientName"] == UserName)
                     {
                         validationMessage = ChatCommand.msgCantBeSentToYourself;
                         return false;
@@ -85,33 +92,19 @@ namespace Utilities
                         return false;
                     }
 
-                    commandArguments.Add("UserName", arguments.ElementAt(0));
+                    commandArguments.Add("SenderName", arguments.ElementAt(0));
                     UserName = arguments.ElementAt(0);
                     break;
                 case CommandType.exit:
                 case CommandType.listusers:
-                    if (string.IsNullOrEmpty(UserName))
-                    {
-                        validationMessage = msgUserNotRegistered;
-                        return false;
-                    }
-                    commandArguments.Add("UserName", arguments.ElementAt(0));
+                    commandArguments.Add("SenderName", arguments.ElementAt(0));
                     break;
             }
 
             Type = commandType;
             Arguments = commandArguments;
-            UserName = commandArguments["UserName"];
 
             return true;
-        }
-
-        public void AddArguments(string argumentName, string argumentValue)
-        {
-            if (!Arguments.ContainsKey(argumentName))
-                Arguments.Add(argumentName, argumentValue);
-            else
-                Arguments[argumentName] = argumentValue;
         }
 
         public override string ToString()

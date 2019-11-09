@@ -118,11 +118,13 @@ namespace SocketServer.Classes
             var tempBuffer = new byte[received];
             Array.Copy(dataBuffer, tempBuffer, received);
             var messageReceived = _utilities.GetStringFromBytesReceived(tempBuffer);
-
             _utilities.WriteMessageToConsole($"Получено сообщение: {messageReceived}");
 
+            if (string.IsNullOrEmpty(messageReceived)) // приходит при отсоединении
+                return;
+
             var command = new ChatCommand();
-            command.TryParse(messageReceived, out var validationMessage);
+            command.TryParse(messageReceived, true, out var validationMessage);
             if (!string.IsNullOrEmpty(validationMessage))
             {
                 _utilities.WriteMessageToConsole(validationMessage, false, EventLevel.Error);
@@ -201,9 +203,11 @@ namespace SocketServer.Classes
             }
         }
 
-        public void CloseSockets() {
+        public void ShutDown() {
             listenSocket.Close();
             udpServer.Close();
+
+            registeredUsers.CloseConnections();
         }
     }
 }
